@@ -3,6 +3,7 @@ package dev.morling.demos.quarkus;
 import java.net.URI;
 import java.util.List;
 
+import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
 import javax.transaction.Transactional;
 import javax.ws.rs.Consumes;
@@ -15,6 +16,7 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
+import io.quarkus.security.identity.SecurityIdentity;
 import org.jboss.resteasy.annotations.providers.multipart.MultipartForm;
 
 import io.quarkus.panache.common.Sort;
@@ -23,7 +25,10 @@ import io.quarkus.qute.Template;
 import io.quarkus.qute.TemplateInstance;
 
 @Path("/todo")
+@RolesAllowed("user")
 public class TodoResource {
+
+    @Inject SecurityIdentity securityIdentity;
 
     @Inject
     Template error;
@@ -43,13 +48,14 @@ public class TodoResource {
 
         List<Todo> results;
         if (filter != null && !filter.isEmpty()) {
-            results = Todo.find("LOWER(title) LIKE LOWER(?1)", sort, "%" + filter + "%").list();
+            results = Todo.find("LOWER(title) LIKE LOWER(?1) and owner = ?2", sort, "%" + filter + "%",securityIdentity.getPrincipal().getName()).list();
         }
         else {
-            results = Todo.findAll(sort).list();
+            results = Todo.findByOwner(securityIdentity.getPrincipal().getName(), sort);
         }
 
         return todos.data("todos", results)
+            .data("username", securityIdentity.getPrincipal().getName())
             .data("filter", filter)
             .data("filtered", filter != null && !filter.isEmpty());
     }
@@ -60,6 +66,7 @@ public class TodoResource {
     @Path("/new")
     public Response addTodo(@MultipartForm TodoForm todoForm) {
         Todo todo = todoForm.convertIntoTodo();
+        todo.owner = securityIdentity.getPrincipal().getName();
         todo.persist();
 
         return Response.status(301)
